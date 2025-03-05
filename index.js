@@ -10,7 +10,7 @@ import { extension_settings } from "../../../extensions.js";
 import { ExColor } from "./ExColor.js";
 import { CharacterType, STCharacter } from "./STCharacter.js";
 import { getImageVibrant, getValidSwatch } from "./color-utils.js";
-import { createColorSourceDropdown, createColorTargetDropdown, createColorTextPickerCombo } from "./element-creators.js";
+import { createColorSourceDropdown, createColorTargetCheckboxes, createColorTextPickerCombo } from "./element-creators.js";
 import { initializeSettings } from "./settings-utils.js";
 import { 
     expEventSource, 
