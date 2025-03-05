@@ -191,3 +191,18 @@ function convertColorTextValueToPickerValue(textHexValue) {
     textHexValue = '#' + ExColor.hexShortToLong(textHexValue);
     return textHexValue;
 }
+
+export function wrapUnquotedText(mesText) {
+    const textNodes = [];
+    for (const node of mesText.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== '') {
+            textNodes.push(node);
+        }
+    }
+    textNodes.forEach(textNode => {
+        const span = document.createElement('span');
+        span.className = 'unquoted-text';
+        textNode.parentNode.insertBefore(span, textNode);
+        span.appendChild(textNode);
+    });
+}

@@ -1,4 +1,4 @@
-import { ColorizeSourceType, TextColorizeTargetType, BubbleColorizeTargetType } from "./index.js";
+import { ColorizeSourceType, ColorizeTargetType } from "./index.js";
 import { linkInputColorTextPicker } from "./utils.js";
 
 /** @typedef {{value: any, text: string, description: string}} DropdownOptionObject */
@@ -107,32 +107,38 @@ export function createColorSourceDropdown(id, onChangedCallback) {
     return createDropdownWithLabel(id, options, "Color Source", "The source to use for dialogue color.", onChangedCallback);
 }
 
-/**
- * Creates a dropdown for selecting which text to color.
- * @param {string} id The ID to set on the created elements.
- * @param {((event: Event) => void)=} onChangedCallback The 'onchange' callback to add to the dropdown.
- * @returns {HTMLDivElement} The div containing the label and dropdown.
- */
-export function createTextColorizeTargetDropdown(id, onChangedCallback) {
-    const options = [
-        { value: TextColorizeTargetType.NONE, text: "None", description: "Do not color any text." },
-        { value: TextColorizeTargetType.QUOTED, text: "Quoted Text", description: "Color only quoted text." },
-        { value: TextColorizeTargetType.UNQUOTED, text: "Unquoted Text", description: "Color only unquoted text." },
-        { value: TextColorizeTargetType.BOTH, text: "Both", description: "Color both quoted and unquoted text." },
+export function createColorTargetCheckboxes(onChangedCallback) {
+    const targets = [
+        { value: ColorizeTargetType.BUBBLES, text: "Chat Bubbles", description: "Color the chat bubbles. Only works with the 'Bubbles' chat style." },
+        { value: ColorizeTargetType.QUOTED_TEXT, text: "Quoted Text", description: "Color quoted text." },
+        { value: ColorizeTargetType.UNQUOTED_TEXT, text: "Unquoted Text", description: "Color unquoted text." }
     ];
-    return createDropdownWithLabel(id, options, "Text Color Targets", "Which text to color.", onChangedCallback);
-}
 
-/**
- * Creates a dropdown for selecting whether to color chat bubbles.
- * @param {string} id The ID to set on the created elements.
- * @param {((event: Event) => void)=} onChangedCallback The 'onchange' callback to add to the dropdown.
- * @returns {HTMLDivElement} The div containing the label and dropdown.
- */
-export function createBubbleColorizeTargetDropdown(id, onChangedCallback) {
-    const options = [
-        { value: BubbleColorizeTargetType.NONE, text: "None", description: "Do not color chat bubbles." },
-        { value: BubbleColorizeTargetType.BUBBLES, text: "Bubbles", description: "Color chat bubbles." },
-    ];
-    return createDropdownWithLabel(id, options, "Bubble Color Targets", "Whether to color chat bubbles.", onChangedCallback);
+    const wrapper = document.createElement('div');
+    wrapper.className = "dc-color-targets";
+
+    targets.forEach(target => {
+        const checkbox = document.createElement('input');
+        checkbox.type = "checkbox";
+        checkbox.value = target.value.toString();
+        checkbox.id = `xdc-target_${target.value}`;
+
+        const label = document.createElement('label');
+        label.htmlFor = checkbox.id;
+        label.innerHTML = target.text;
+        if (target.description) {
+            label.title = target.description;
+            label.innerHTML += `<span class="margin5 fa-solid fa-circle-info opacity50p"></span>`;
+        }
+
+        const container = document.createElement('div');
+        container.appendChild(checkbox);
+        container.appendChild(label);
+
+        wrapper.appendChild(container);
+
+        checkbox.addEventListener('change', onChangedCallback);
+    });
+
+    return wrapper;
 }

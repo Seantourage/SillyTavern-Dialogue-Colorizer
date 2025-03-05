@@ -10,7 +10,7 @@ import { extension_settings } from "../../../extensions.js";
 import { ExColor } from "./ExColor.js";
 import { CharacterType, STCharacter } from "./STCharacter.js";
 import { getImageVibrant, getValidSwatch } from "./color-utils.js";
-import { createColorSourceDropdown, createTextColorizeTargetDropdown, createBubbleColorizeTargetDropdown, createColorTextPickerCombo } from "./element-creators.js";
+import { createColorSourceDropdown, createColorTargetDropdown, createColorTextPickerCombo } from "./element-creators.js";
 import { initializeSettings } from "./settings-utils.js";
 import { 
     expEventSource, 
@@ -26,47 +26,33 @@ import {
     isInGroupChat } from "./st-utils.js";
 import { setInputColorPickerComboValue } from "./utils.js";
 
-/**
- * @typedef {ValueOf<typeof ColorizeSourceType>} ColorizeSourceType
- * @readonly
- */
-export const ColorizeSourceType = {
-    AVATAR_VIBRANT: "avatar_vibrant",
-    CHAR_COLOR_OVERRIDE: "char_color_override",
-    STATIC_COLOR: "static_color",
-    DISABLED: "disabled"
-};
-
-/**
- * @typedef {ValueOf<typeof TextColorizeTargetType>} TextColorizeTargetType
- * @readonly
- */
-export const TextColorizeTargetType = {
-    NONE: "none",
-    QUOTED: "quoted",
-    UNQUOTED: "unquoted",
-    BOTH: "both"
-};
-
-/**
- * @typedef {ValueOf<typeof BubbleColorizeTargetType>} BubbleColorizeTargetType
- * @readonly
- */
-export const BubbleColorizeTargetType = {
-    NONE: "none",
-    BUBBLES: "bubbles"
-};
-
-/**
- * @typedef {typeof defaultExtSettings} XDCSettings
- */
- 
 //#endregion Local imports
 
 const DEFAULT_STATIC_DIALOGUE_COLOR_HEX = "#e18a24";
 /** @type {[number, number, number]} */
 const DEFAULT_STATIC_DIALOGUE_COLOR_RGB = [225, 138, 36];
 
+/**
+ * @typedef {ValueOf<typeof ColorizeSourceType>} ColorizeSourceType
+ * @readonly
+ */
+export const ColorizeSourceType = {
+    AVATAR_VIBRANT: "avatar_vibrant",
+    //AVATAR_DOMINANT: "avatar_dominant",
+    CHAR_COLOR_OVERRIDE: "char_color_override",
+    STATIC_COLOR: "static_color",
+    DISABLED: "disabled"
+};
+
+export const ColorizeTargetType = {
+    QUOTED_TEXT: 1 << 0,    // Bit 0: 1
+    BUBBLES: 1 << 1,        // Bit 1: 2
+    UNQUOTED_TEXT: 1 << 2   // Bit 2: 4
+};
+
+/**
+ * @typedef {defaultExtSettings} XDCSettings
+ */
 const defaultCharColorSettings = {
     colorizeSource: ColorizeSourceType.AVATAR_VIBRANT,
     staticColor: DEFAULT_STATIC_DIALOGUE_COLOR_HEX,
@@ -75,8 +61,7 @@ const defaultCharColorSettings = {
 const defaultExtSettings = {
     charColorSettings: defaultCharColorSettings,
     personaColorSettings: defaultCharColorSettings,
-    textColorizeTarget: TextColorizeTargetType.QUOTED,
-    bubbleColorizeTarget: BubbleColorizeTargetType.NONE,
+    colorizeTargets: ColorizeTargetType.QUOTED_TEXT,
     chatBubbleLightness: 0.15,
 };
 
@@ -89,38 +74,26 @@ let charactersStyleSheet;
 /** @type {HTMLStyleElement} */
 let personasStyleSheet;
 
-/**
- * @param {STCharacter} stChar
- */
 async function getCharStyleString(stChar) {
     let styleHtml = "";
     const charDialogueColor = await getCharacterDialogueColor(stChar);
     if (charDialogueColor) {
-        if (extSettings.textColorizeTarget === TextColorizeTargetType.QUOTED) {
+        if ((extSettings.colorizeTargets & ColorizeTargetType.QUOTED_TEXT) === ColorizeTargetType.QUOTED_TEXT) {
             styleHtml += `
                 .mes[xdc-author_uid="${stChar.uid}"] .mes_text q {
-                    color: #${charDialogueColor.toHex()};
-                }
-            `;
-        } else if (extSettings.textColorizeTarget === TextColorizeTargetType.UNQUOTED) {
-            styleHtml += `
-                .mes[xdc-author_uid="${stChar.uid}"] .mes_text {
-                    color: #${charDialogueColor.toHex()};
-                }
-                .mes[xdc-author_uid="${stChar.uid}"] .mes_text q {
-                    color: var(--SmartThemeQuoteColor);
-                }
-            `;
-        } else if (extSettings.textColorizeTarget === TextColorizeTargetType.BOTH) {
-            styleHtml += `
-                .mes[xdc-author_uid="${stChar.uid}"] .mes_text {
                     color: #${charDialogueColor.toHex()};
                 }
             `;
         }
-        // If NONE, no text styling is applied
+        if ((extSettings.colorizeTargets & ColorizeTargetType.UNQUOTED_TEXT) === ColorizeTargetType.UNQUOTED_TEXT) {
+            styleHtml += `
+                .mes[xdc-author_uid="${stChar.uid}"] .unquoted-text {
+                    color: #${charDialogueColor.toHex()};
+                }
+            `;
+        }
     }
-    if (extSettings.bubbleColorizeTarget === BubbleColorizeTargetType.BUBBLES) {
+    if ((extSettings.colorizeTargets & ColorizeTargetType.BUBBLES) === ColorizeTargetType.BUBBLES) {
         const charBubbleColor = await getCharacterBubbleColor(stChar);
         if (charBubbleColor) {
             styleHtml += `
@@ -155,6 +128,8 @@ async function updateCharactersStyleSheet(characterList) {
     charactersStyleSheet.innerHTML = stylesHtml.join("");
 }
 
+// Handled differently from the chars style sheet so we don't have to do any dirty/complex tricks when a chat has messages
+// from a persona the user isn't currently using (otherwise the message color would revert to the default).
 /**
  * 
  * @param {STCharacter[]=} personaList 
@@ -288,10 +263,13 @@ function getTextValidHexOrDefault(textboxValue, defaultValue) {
  * 
  * @param {HTMLElement} message 
  */
+import { wrapUnquotedText } from "./utils.js"; // Add to existing imports
+
 function addAuthorUidClassToMessage(message) {
     const authorChatUidAttr = "xdc-author_uid";
     if (message.hasAttribute(authorChatUidAttr)) {
         console.debug(`[XDC] Message already has '${authorChatUidAttr}' attribute, skipping.`);
+        return;
     }
 
     const messageAuthorChar = getMessageAuthor(message);
@@ -301,6 +279,11 @@ function addAuthorUidClassToMessage(message) {
     }
 
     message.setAttribute(authorChatUidAttr, messageAuthorChar.uid);
+
+    const mesText = message.querySelector('.mes_text');
+    if (mesText) {
+        wrapUnquotedText(mesText);
+    }
 }
 
 //#region Event Handlers
@@ -358,24 +341,26 @@ function initializeSettingsUI() {
     const elemExtensionSettings = document.getElementById("xdc-extension-settings");
 
     const elemGlobalDialogueSettings = elemExtensionSettings.querySelector("#xdc-global_dialogue_settings");
+const elemColorTargetCheckboxes = createColorTargetCheckboxes((event) => {
+    const checkbox = event.target;
+    const value = parseInt(checkbox.value);
+    if (checkbox.checked) {
+        extSettings.colorizeTargets |= value;  // Set the bit
+    } else {
+        extSettings.colorizeTargets &= ~value; // Clear the bit
+    }
+    onAnySettingsUpdated();
+});
 
-    // Add Text Colorize Target Dropdown
-    const elemTextColorizeTargetDropdown = createTextColorizeTargetDropdown("xdc-global_text_colorize_target", (changedEvent) => {
-        const value = $(changedEvent.target).prop("value");
-        extSettings.textColorizeTarget = value;
-        onAnySettingsUpdated();
-    });
-    elemGlobalDialogueSettings.children[0].insertAdjacentElement("afterend", elemTextColorizeTargetDropdown);
-    $(elemTextColorizeTargetDropdown.querySelector('select')).prop("value", extSettings.textColorizeTarget);
+// Set initial checked state
+Object.values(ColorizeTargetType).forEach(value => {
+    const checkbox = elemColorTargetCheckboxes.querySelector(`#xdc-target_${value}`);
+    if (checkbox) {
+        checkbox.checked = (extSettings.colorizeTargets & value) === value;
+    }
+});
 
-    // Add Bubble Colorize Target Dropdown
-    const elemBubbleColorizeTargetDropdown = createBubbleColorizeTargetDropdown("xdc-global_bubble_colorize_target", (changedEvent) => {
-        const value = $(changedEvent.target).prop("value");
-        extSettings.bubbleColorizeTarget = value;
-        onAnySettingsUpdated();
-    });
-    elemTextColorizeTargetDropdown.insertAdjacentElement("afterend", elemBubbleColorizeTargetDropdown);
-    $(elemBubbleColorizeTargetDropdown.querySelector('select')).prop("value", extSettings.bubbleColorizeTarget);
+elemGlobalDialogueSettings.children[0].insertAdjacentElement("afterend", elemColorTargetCheckboxes);
 
     const elemChatBubbleLightness = elemGlobalDialogueSettings.querySelector("#xdc-chat_bubble_color_lightness");
     $(elemChatBubbleLightness)
@@ -389,7 +374,11 @@ function initializeSettingsUI() {
                 target.prop("value", lastValidValue);
                 return;
             }
-            const resultValue = numValue < 0.0 ? 0.0 : numValue > 1.0 ? 1.0 : numValue;
+
+            const resultValue = numValue < 0.0 ? 0.0 
+                : numValue > 1.0 ? 1.0 
+                : numValue;
+
             target.prop("value", resultValue);
             extSettings.chatBubbleLightness = resultValue;
             onAnySettingsUpdated();
@@ -402,7 +391,7 @@ function initializeSettingsUI() {
         onCharacterSettingsUpdated();
     });
     const charStaticColorPickerCombo = createColorTextPickerCombo(
-        (textboxValue) => getTextValidHexOrDefault(textboxValue, null),
+        (textboxValue) => getTextValidHexOrDefault(textboxValue, null), 
         (colorValue) => {
             extSettings.charColorSettings.staticColor = colorValue;
             onCharacterSettingsUpdated();
@@ -424,8 +413,9 @@ function initializeSettingsUI() {
         extSettings.personaColorSettings.colorizeSource = value;
         onPersonaSettingsUpdated();
     });
+    
     const personaStaticColorPickerCombo = createColorTextPickerCombo(
-        (textboxValue) => getTextValidHexOrDefault(textboxValue, null),
+        (textboxValue) => getTextValidHexOrDefault(textboxValue, null), 
         (colorValue) => {
             extSettings.personaColorSettings.staticColor = colorValue;
             onPersonaSettingsUpdated();
@@ -433,7 +423,7 @@ function initializeSettingsUI() {
     );
     personaDialogueSettings.children[0].insertAdjacentElement("afterend", personaColorSourceDropdown);
     personaDialogueSettings.children[3].insertAdjacentElement("beforeend", personaStaticColorPickerCombo);
-
+    
     $(personaColorSourceDropdown.querySelector('select'))
         .prop("value", extSettings.personaColorSettings.colorizeSource)
         .trigger('change');
@@ -518,10 +508,11 @@ jQuery(async ($) => {
     expEventSource.on(exp_event_type.CHAR_CARD_CHANGED, onCharacterChanged);
     expEventSource.on(exp_event_type.PERSONA_CHANGED, onPersonaChanged);
     
-    eventSource.once(event_types.APP_READY, () => {
-        onPersonaChanged(getCurrentPersona()); // Initialize color inputs with starting values.
-        updatePersonasStyleSheet();
-    });
-});
+	eventSource.once(event_types.APP_READY, () => {
+		onPersonaChanged(getCurrentPersona());
+		updatePersonasStyleSheet();
+		document.querySelectorAll('.mes').forEach(addAuthorUidClassToMessage);
+	});
+})
 
 //#endregion Initialization
